@@ -1,4 +1,4 @@
-//src/routes/itineraryRoutes.ts
+// src/routes/itineraryRoutes.ts
 
 import { Router, Response } from 'express';
 import { Itinerary } from '../models/Itinerary';
@@ -9,7 +9,16 @@ const router = Router();
 // POST /api/itineraries  (create a trip)
 router.post('/', protect, async (req: AuthRequest, res: Response) => {
   try {
-    const { destinationId, title, startDate, endDate, days } = req.body;
+    const {
+      destinationId,
+      title,
+      startDate,
+      endDate,
+      days,
+      selectedHotel,
+      selectedHotelIndex,
+    } = req.body;
+
     console.log('Create itinerary body:', req.body);
 
     if (!destinationId || !title || !startDate || !endDate) {
@@ -17,17 +26,25 @@ router.post('/', protect, async (req: AuthRequest, res: Response) => {
     }
 
     const itinerary = await Itinerary.create({
-      user: req.user!.id,
+      user: req.user!._id,
       destination: destinationId,
       title,
       startDate,
       endDate,
       days: days || [],
+
+      // optional hotel fields
+      selectedHotel: selectedHotel || null,
+      selectedHotelIndex:
+        typeof selectedHotelIndex === 'number' ? selectedHotelIndex : null,
     });
 
-    return res.status(201).json(itinerary);
+    // populate destination so frontend can use destination.name / latitude / longitude
+    const populated = await itinerary.populate('destination');
+
+    return res.status(201).json(populated);
   } catch (err: any) {
-    console.error('Create itinerary error:', err);   // 👈 check this in backend console
+    console.error('Create itinerary error:', err);
     return res.status(500).json({ message: 'Failed to create itinerary' });
   }
 });
@@ -35,8 +52,12 @@ router.post('/', protect, async (req: AuthRequest, res: Response) => {
 // GET /api/itineraries/my  (all trips of logged-in user)
 router.get('/my', protect, async (req: AuthRequest, res: Response) => {
   try {
-    const list = await Itinerary.find({ user: req.user!.id })
-      .populate('destination', 'name country');
+    const list = await Itinerary.find({ user: req.user!._id })
+      .populate('destination')
+      // if selectedHotel is a ref, you can also populate it:
+      // .populate('selectedHotel')
+      .sort({ createdAt: -1 });
+
     res.json(list);
   } catch (err) {
     console.error('Get itineraries error:', err);
@@ -47,12 +68,18 @@ router.get('/my', protect, async (req: AuthRequest, res: Response) => {
 // GET /api/itineraries/:id  (single trip)
 router.get('/:id', protect, async (req: AuthRequest, res: Response) => {
   try {
-    const item = await Itinerary.findOne({
-      _id: req.params.id,
-      user: req.user!.id,
-    }).populate('destination', 'name country');
+    const itineraryId = req.params.id; // ✅ correct param name
 
-    if (!item) return res.status(404).json({ message: 'Not found' });
+    const item = await Itinerary.findOne({
+      _id: itineraryId,
+      user: req.user!._id,
+    })
+      .populate('destination')
+      .populate('selectedHotel'); // ✅ so detail screen has hotel data
+
+    if (!item) {
+      return res.status(404).json({ message: 'Not found' });
+    }
 
     res.json(item);
   } catch (err) {
@@ -64,11 +91,11 @@ router.get('/:id', protect, async (req: AuthRequest, res: Response) => {
 // DELETE /api/itineraries/:id
 router.delete('/:id', protect, async (req: AuthRequest, res: Response) => {
   try {
-    console.log('DELETE itinerary', req.params.id, 'user', req.user?.id);
+    console.log('DELETE itinerary', req.params.id, 'user', req.user?._id);
 
     const deleted = await Itinerary.findOneAndDelete({
       _id: req.params.id,
-      user: req.user!.id,
+      user: req.user!._id,
     });
 
     if (!deleted) {
@@ -81,6 +108,5 @@ router.delete('/:id', protect, async (req: AuthRequest, res: Response) => {
     return res.status(500).json({ message: 'Failed to delete itinerary' });
   }
 });
-
 
 export default router;
